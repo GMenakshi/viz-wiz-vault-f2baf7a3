@@ -5,7 +5,6 @@ import {
   ArrowLeft,
   ArrowRight,
   Bookmark,
-  Fox,
   Search,
 } from "lucide-react";
 
@@ -15,6 +14,8 @@ import indonesiaImage from "@/assets/indonesia-volcano-BnNqYPQM.jpg.asset.json";
 import keralaImage from "@/assets/kerala-hills-CP7s6-_O.jpg.asset.json";
 import thailandImage from "@/assets/thailand-temple-CVhaOY8X.jpg.asset.json";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { destinationIndex, swipeDestination } from "@/lib/destination-navigation";
 
 const destinations = [
   {
@@ -104,11 +105,18 @@ export const Route = createFileRoute("/")({
 function DestinationExplorer() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [bookmarked, setBookmarked] = useState<Set<string>>(() => new Set());
-  const pointerStart = useRef<number | null>(null);
-  const activeDestination = destinations[activeIndex];
+  const [menu, setMenu] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const pointerStart = useRef<{ x: number; y: number } | null>(null);
+  const suppressClick = useRef(false);
+  const activeDestination = destinations[activeIndex] ?? destinations[0];
 
   const goTo = useCallback((index: number) => {
-    setActiveIndex(Math.max(0, Math.min(destinations.length - 1, index)));
+    setActiveIndex(destinationIndex(index));
+    setMenu(null);
+    setSearchOpen(false);
   }, []);
 
   useEffect(() => {
@@ -120,11 +128,16 @@ function DestinationExplorer() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.matches("input, textarea, select") || target.isContentEditable)) return;
+      if (event.key === "Escape") setMenu(null);
       if (event.key === "ArrowRight") {
-        setActiveIndex((current) => Math.min(destinations.length - 1, current + 1));
+        event.preventDefault();
+        setActiveIndex((current) => destinationIndex(current + 1));
       }
       if (event.key === "ArrowLeft") {
-        setActiveIndex((current) => Math.max(0, current - 1));
+        event.preventDefault();
+        setActiveIndex((current) => destinationIndex(current - 1));
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -132,20 +145,18 @@ function DestinationExplorer() {
   }, []);
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    pointerStart.current = event.clientX;
-    event.currentTarget.setPointerCapture(event.pointerId);
+    pointerStart.current = { x: event.clientX, y: event.clientY };
+    suppressClick.current = false;
   };
 
   const handlePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (pointerStart.current === null) return;
-    const travel = event.clientX - pointerStart.current;
+    const travel = event.clientX - pointerStart.current.x;
+    const vertical = event.clientY - pointerStart.current.y;
     pointerStart.current = null;
-    if (Math.abs(travel) < 70) return;
-    setActiveIndex((current) =>
-      travel < 0
-        ? Math.min(destinations.length - 1, current + 1)
-        : Math.max(0, current - 1),
-    );
+    if (Math.abs(travel) < 70 || Math.abs(travel) < Math.abs(vertical)) return;
+    suppressClick.current = true;
+    setActiveIndex((current) => swipeDestination(current, travel));
   };
 
   const toggleBookmark = (id: string) => {
@@ -175,24 +186,36 @@ function DestinationExplorer() {
         </div>
 
         <header className="travel-header">
-          <button className="brand-mark focus-ring" type="button" onClick={() => goTo(0)}>
-            <Fox aria-hidden="true" />
+          <Button variant="travelGhost" className="brand-mark focus-ring" type="button" aria-label="Foxico home" onClick={() => goTo(0)}>
+            <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+              <path d="M4.2 10.1 8.1 3.7l5.8 5.1h4.2l5.8-5.1 3.9 6.4-1.4 11.1-8.5 6.1h-3.8l-8.5-6.1L4.2 10.1Z" fill="currentColor" />
+              <path d="m10.3 16.1 5.7 3.1 5.7-3.1-2.2 6.3h-7l-2.2-6.3Z" fill="var(--foreground)" />
+              <path d="M11.2 12.7h.1m9.4 0h.1" stroke="var(--foreground)" strokeWidth="2.2" strokeLinecap="round" />
+            </svg>
             <span>Foxico</span>
-          </button>
+          </Button>
           <div className="travel-header-right">
             <nav className="top-links" aria-label="Main navigation">
               {['News', 'Destinations', 'Blog', 'Contact'].map((label) => (
-                <Button key={label} type="button" variant="travelGhost" className="top-link">
+                <Button key={label} type="button" variant="travelGhost" className="top-link" aria-expanded={menu === label} onClick={() => setMenu((current) => current === label ? null : label)}>
                   {label}
                 </Button>
               ))}
             </nav>
             <span className="greeting">Hello, Anney !</span>
-            <Button type="button" variant="travelIcon" size="travelIcon" aria-label="Search destinations">
+            <Button type="button" variant="travelIcon" size="travelIcon" aria-label="Search destinations" onClick={() => { setMenu(null); setSearchOpen(true); }}>
               <Search aria-hidden="true" />
             </Button>
           </div>
         </header>
+
+        {menu && <div className="top-popover">
+          <h2>{menu === "Destinations" ? "Find a place that stays with you." : menu === "News" ? "From the faraway files" : menu === "Blog" ? "The Foxico journal" : "Where would you like to go?"}</h2>
+          {menu !== "Destinations" && <p>{menu === "News" ? "A little inspiration for wherever the next journey takes you." : menu === "Blog" ? "Field notes, quiet corners, and the stories behind the places." : "Start with a place that speaks to you. Your next journey begins there."}</p>}
+          <div className="quick-destinations">
+            {menu === "Destinations" ? destinations.map((destination, index) => <Button variant="travelGhost" className="quick-destination" key={destination.id} onClick={() => goTo(index)}>{destination.name}</Button>) : <Button variant="travelGhost" className="quick-destination" onClick={() => { setMenu(null); setSearchOpen(true); }}><Search />{menu === "News" ? "Explore the collection" : menu === "Blog" ? "Find a destination" : "Search destinations"}</Button>}
+          </div>
+        </div>}
 
         <nav className="destination-progress" aria-label="Destination slides">
           <div className="progress-line" aria-hidden="true" />
@@ -217,22 +240,28 @@ function DestinationExplorer() {
           {String(activeIndex + 1).padStart(2, "0")}/{String(destinations.length).padStart(2, "0")}
         </span>
 
-        <div className="destination-copy" key={activeDestination.id}>
-          <div className="destination-kicker">{activeDestination.kicker}</div>
-          <h1 className="destination-title">{activeDestination.name}</h1>
-          <p className="destination-description">{activeDestination.description}</p>
-          <Button type="button" variant="travelPrimary" size="travelCta" className="explore-button">
-            <span>Explore</span>
-            <ArrowRight aria-hidden="true" />
-          </Button>
+        <div className="destination-copy">
+          {destinations.map((destination, index) => <div className="copy-layer" key={destination.id} data-active={index === activeIndex} aria-hidden={index !== activeIndex} inert={index !== activeIndex}>
+            <div className="destination-kicker">{destination.kicker}</div>
+            <h1 className="destination-title">{destination.name}</h1>
+            <p className="destination-description">{destination.description}</p>
+            <Button type="button" variant="travelPrimary" size="travelCta" className="explore-button" onClick={() => setDetailsOpen(true)}>
+              <span>Explore</span>
+              <ArrowRight aria-hidden="true" />
+            </Button>
+          </div>)}
         </div>
 
         <div
           className="carousel-rail"
           aria-label="More destinations"
           onPointerDown={handlePointerDown}
+          onPointerMove={(event) => {
+            if (pointerStart.current && Math.abs(event.clientX - pointerStart.current.x) > 12) event.currentTarget.setPointerCapture(event.pointerId);
+          }}
           onPointerUp={handlePointerUp}
           onPointerCancel={() => { pointerStart.current = null; }}
+          onClickCapture={(event) => { if (suppressClick.current) { event.preventDefault(); event.stopPropagation(); suppressClick.current = false; } }}
         >
           <div className="carousel-track" style={{ "--rail-index": activeIndex } as RailStyle}>
             {destinations.map((destination, index) => (
@@ -248,14 +277,15 @@ function DestinationExplorer() {
                   </div>
                 </div>
                 <div className="destination-card-media">
-                  <button
+                  <Button
+                    variant="travelGhost"
                     className="destination-card-button focus-ring"
                     type="button"
                     aria-label={`View ${destination.name.toLowerCase()}`}
                     onClick={() => goTo(index)}
                   >
-                    <img src={destination.image} alt={destination.imageAlt} width={1536} height={1024} />
-                  </button>
+                    <img src={destination.image} alt={destination.imageAlt} width={1536} height={1024} draggable={false} />
+                  </Button>
                   <Button
                     type="button"
                     variant="travelIcon"
@@ -274,7 +304,7 @@ function DestinationExplorer() {
         </div>
 
         <div className="bottom-controls">
-          <span className="bottom-controls-note">Find your faraway</span>
+          <span className="bottom-controls-note">Somewhere worth finding</span>
           <div className="arrow-controls">
             <Button
               type="button"
@@ -282,7 +312,7 @@ function DestinationExplorer() {
               size="travelArrow"
               aria-label="Previous destination"
               disabled={activeIndex === 0}
-              onClick={() => goTo(activeIndex - 1)}
+              onClick={() => setActiveIndex((current) => destinationIndex(current - 1))}
             >
               <ArrowLeft aria-hidden="true" />
             </Button>
@@ -292,15 +322,35 @@ function DestinationExplorer() {
               size="travelArrow"
               aria-label="Next destination"
               disabled={activeIndex === destinations.length - 1}
-              onClick={() => goTo(activeIndex + 1)}
+              onClick={() => setActiveIndex((current) => destinationIndex(current + 1))}
             >
               <ArrowRight aria-hidden="true" />
             </Button>
           </div>
-          <span className="bottom-index" key={`bottom-${activeIndex}`}>
+          <span className="bottom-index" key={`bottom-${activeIndex}`} aria-live="polite" aria-label={`Slide ${activeIndex + 1} of 5`}>
             {String(activeIndex + 1).padStart(2, "0")} <i /> {String(destinations.length).padStart(2, "0")}
           </span>
         </div>
+
+        <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
+          <DialogContent className="travel-dialog">
+            <DialogTitle>Find your faraway</DialogTitle>
+            <DialogDescription className="sr-only">Search the destination collection.</DialogDescription>
+            <div className="search-field-wrap"><Search aria-hidden="true" /><input type="search" aria-label="Search a place or region" placeholder="Search a place or region" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} /></div>
+            <div className="search-results">
+              {destinations.map((destination, index) => ({ destination, index })).filter(({ destination }) => `${destination.name} ${destination.region} ${destination.cardName}`.toLowerCase().includes(searchQuery.toLowerCase())).map(({ destination, index }) => <Button variant="travelGhost" className="search-result" key={destination.id} onClick={() => goTo(index)}><span><strong>{destination.name}</strong><small>{destination.region}</small></span><ArrowRight /></Button>)}
+              {!destinations.some((destination) => `${destination.name} ${destination.region} ${destination.cardName}`.toLowerCase().includes(searchQuery.toLowerCase())) && <p>No destinations found. Try a region or another name.</p>}
+            </div>
+          </DialogContent>
+        </Dialog>
+        <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
+          <DialogContent className="travel-dialog">
+            <p className="details-eyebrow">{activeDestination.region}</p>
+            <DialogTitle>{activeDestination.name}</DialogTitle>
+            <DialogDescription>{activeDestination.description}</DialogDescription>
+            <Button variant="travelPrimary" size="travelCta" onClick={() => { setDetailsOpen(false); setSearchOpen(true); }}>Find another place<ArrowRight /></Button>
+          </DialogContent>
+        </Dialog>
       </section>
     </main>
   );
